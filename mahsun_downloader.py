@@ -4,7 +4,6 @@ import time
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
-# Engellenecek reklam domainleri (Yayın sunucularını engellemez)
 AD_PATTERNS = [
     "bsky.app", "bluesky", "twitter.com", "x.com", "telegram.org",
     "doubleclick", "googlesyndication", "analytics", "gtag",
@@ -41,7 +40,7 @@ def check_active_domain(context):
 
 def main():
     with sync_playwright() as p:
-        print("🚀 Mahsun Sports Otomatik Reklam Geçici & M3U8 İndirici Başlatılıyor...\n")
+        print("🚀 Mahsun Sports M3U8 İndirici Başlatılıyor...\n")
         
         browser_args = [
             '--autoplay-policy=no-user-gesture-required',
@@ -122,14 +121,17 @@ def main():
         m3u_content = []
         output_filename = "kanallar_mahsun.m3u8"
         created = 0
-
-        page = context.new_page()
-        page.on("popup", lambda popup: popup.close())
+        active_cdn_host = None  # Canlı yakalanan CDN sunucusu (örn: andro.evrenesoglu57.click)
 
         for i, (channel_id, (channel_name, category)) in enumerate(channels.items(), 1):
+            page = None
             try:
                 print(f"[{i:02d}/{len(channels)}] {channel_name} ({channel_id})...", end=' ')
                 sys.stdout.flush()
+
+                # Her kanal için izole, temiz sayfa aç
+                page = context.new_page()
+                page.on("popup", lambda p: p.close())
 
                 embed_url = f"https://8602741.xyz/event.html?id={channel_id}#amp=1"
                 captured_urls = []
@@ -141,6 +143,9 @@ def main():
 
                         if ".m3u8" in req_url_lower:
                             if not any(ad in req_url_lower for ad in AD_PATTERNS):
+                                # Başka bir kanalın isteği sızdıysa kabul etme
+                                if channel_id != "androstreamlivebs1" and channel_id not in req_url_lower:
+                                    return
                                 captured_urls.append(req_url)
                     except:
                         pass
@@ -149,9 +154,9 @@ def main():
 
                 try:
                     page.goto(embed_url, timeout=12000, wait_until='domcontentloaded')
-                    page.wait_for_timeout(1000)
+                    page.wait_for_timeout(800)
 
-                    # Reklamı başlatmak için videoya tıkla (veya un-mute yap)
+                    # Video oynatmayı tetikle
                     page.evaluate("""() => {
                         document.querySelectorAll('video').forEach(v => {
                             v.muted = true;
@@ -159,53 +164,61 @@ def main():
                         });
                     }""")
 
-                    # Reklamın geçmesini ve canlı yayının başlamasını bekle (Max 14 sn)
+                    # Reklamı geçme ve m3u8 yakalama döngüsü
                     start_time = time.time()
-                    max_wait = 14
+                    max_wait = 10 if i <= 3 else 7
 
                     while time.time() - start_time < max_wait:
-                        # Gerçek yayın m3u8'i yakalandığı anda beklemeden çık
                         if captured_urls:
                             break
 
-                        # Varsa "Reklamı geç" butonuna periyodik olarak tıkla
+                        # Reklamı geç butonu varsa tıkla
                         try:
                             skip_btn = page.locator("text=/Reklamı geç/i, text=/Skip/i, button:has-text('Reklam')").first
                             if skip_btn.is_visible():
-                                skip_btn.click(timeout=400)
+                                skip_btn.click(timeout=300)
                         except:
                             pass
 
-                        # Video oynatımı durduysa devam ettir
-                        try:
-                            page.evaluate("document.querySelectorAll('video').forEach(v => { if(v.paused) v.play(); });")
-                        except:
-                            pass
-
-                        page.wait_for_timeout(500)
+                        page.wait_for_timeout(400)
 
                     chosen_m3u8 = None
                     if captured_urls:
                         chosen_m3u8 = captured_urls[-1]
+                        # CDN Domainini hafızaya al
+                        parsed = urlparse(chosen_m3u8)
+                        if parsed.netloc:
+                            active_cdn_host = parsed.netloc
+
+                    # Eğer reklam nedeniyle yakalanamadıysa, tespit edilen canlı CDN ile tamamla
+                    if not chosen_m3u8 and active_cdn_host:
+                        if channel_id == "androstreamlivebs1":
+                            chosen_m3u8 = f"https://{active_cdn_host}/checklist/batutest.m3u8"
+                        else:
+                            chosen_m3u8 = f"https://{active_cdn_host}/checklist/{channel_id}.m3u8"
+                        print(f"-> ⚡ OK (Oto-Çözüldü: {chosen_m3u8})")
+                    elif chosen_m3u8:
+                        print(f"-> ✅ OK ({chosen_m3u8})")
+                    else:
+                        print("-> ❌ Link bulunamadı")
 
                     if chosen_m3u8:
                         m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
                         m3u_content.append(chosen_m3u8)
-                        print(f"-> ✅ OK ({chosen_m3u8})")
                         created += 1
-                    else:
-                        print("-> ❌ Link bulunamadı")
 
                 except Exception as e:
                     print(f"-> ❌ Hata: {str(e)[:50]}")
                 finally:
                     page.remove_listener("request", handle_request)
+                    page.close()
 
             except Exception as e:
                 print(f"-> ❌ Genel hata: {e}")
+                if page:
+                    page.close()
                 continue
 
-        page.close()
         browser.close()
 
         if created > 0:
@@ -219,7 +232,7 @@ def main():
                 f.write(header + "\n\n")
                 f.write("\n".join(m3u_content))
             
-            print(f"\n🎉 Tamamlandı! {created} kanal kaydedildi → {output_filename}")
+            print(f"\n🎉 Tamamlandı! {created}/{len(channels)} kanal kaydedildi → {output_filename}")
         else:
             print("\n❌ Hiçbir kanal için m3u8 linki yakalanamadı.")
 
