@@ -4,16 +4,44 @@ import time
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
+# Engellenecek reklam domainleri (Yayın sunucularını engellemez)
 AD_PATTERNS = [
     "bsky.app", "bluesky", "twitter.com", "x.com", "telegram.org",
     "doubleclick", "googlesyndication", "analytics", "gtag",
-    "adcash", "popads", "propeller", "adnxs", "histats", "onclick",
-    "adrun", "adserver", "monetag", "traffic", "banner"
+    "adcash", "popads", "propeller", "adnxs", "histats"
 ]
+
+def check_active_domain(context):
+    test_urls = [
+        "https://mahsun-amp.click/",
+        "https://mahsunsports.xyz/",
+        "https://mahsunsports46.xyz/",
+    ]
+
+    print("\n🔍 Mahsun Sports domain kontrolü yapılıyor...\n")
+    page = context.new_page()
+    page.on("popup", lambda popup: popup.close())
+
+    for url in test_urls:
+        try:
+            print(f"   Deniyor → {url}", end=" ")
+            response = page.goto(url, timeout=8000, wait_until="domcontentloaded")
+            if response and response.ok:
+                print("✅ BULUNDU!")
+                page.close()
+                return url.rstrip("/")
+            else:
+                print(f"❌ HTTP {response.status if response else 'Yok'}")
+        except Exception as e:
+            print(f"❌ {str(e)[:40]}")
+
+    page.close()
+    return "https://mahsun-amp.click"
+
 
 def main():
     with sync_playwright() as p:
-        print("🚀 Mahsun Sports Teşhis & Ekran Görüntüsü Alıcı Başlatılıyor...\n")
+        print("🚀 Mahsun Sports Otomatik Reklam Geçici & M3U8 İndirici Başlatılıyor...\n")
         
         browser_args = [
             '--autoplay-policy=no-user-gesture-required',
@@ -44,25 +72,59 @@ def main():
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """)
 
+        domain = check_active_domain(context)
+        print(f"\n📡 Kullanılan Domain: {domain}\n")
+
         channels = {
             "androstreamlivebs1": ("BeIN Sports 1", "BeinSports"),
             "androstreamlivebs2": ("BeIN Sports 2", "BeinSports"),
             "androstreamlivebs3": ("BeIN Sports 3", "BeinSports"),
+            "androstreamlivebs4": ("BeIN Sports 4", "BeinSports"),
+            "androstreamlivebs5": ("BeIN Sports 5", "BeinSports"),
+            "androstreamlivebsm1": ("BeIN Sports Max 1", "BeinSports"),
+            "androstreamlivebsm2": ("BeIN Sports Max 2", "BeinSports"),
+            "androstreamlivebsh": ("BeIN Sports Haber", "BeinSports"),
             "androstreamlivess1": ("S Sport 1", "S Sports"),
+            "androstreamlivess2": ("S Sport 2", "S Sports"),
+            "androstreamlivessplus1": ("S Sport Plus", "S Sports"),
+            "androstreamlivets": ("Tivibu Spor", "Tivibu"),
+            "androstreamlivets1": ("Tivibu Spor 1", "Tivibu"),
+            "androstreamlivets2": ("Tivibu Spor 2", "Tivibu"),
+            "androstreamlivets3": ("Tivibu Spor 3", "Tivibu"),
+            "androstreamlivets4": ("Tivibu Spor 4", "Tivibu"),
+            "androstreamlivesm1": ("Spor Smart 1", "Smart Sports"),
+            "androstreamlivesm2": ("Spor Smart 2", "Smart Sports"),
+            "androstreamlivees1": ("Euro Sport 1", "Eurosport"),
+            "androstreamlivees2": ("Euro Sport 2", "Eurosport"),
+            "androstreamliveidm": ("Idman TV", "Azerbaycan"),
+            "androstreamlivecbcs": ("CBC Sport", "Azerbaycan"),
             "androstreamlivetrt1": ("TRT 1", "TRT"),
+            "androstreamlivetrts": ("TRT Spor", "TRT"),
+            "androstreamlivetrtsy": ("TRT Spor Yildiz", "TRT"),
+            "androstreamliveatv": ("ATV", "Ulusal"),
+            "androstreamliveas": ("A Spor", "Ulusal"),
+            "androstreamlivea2": ("A2", "Ulusal"),
+            "androstreamliveht": ("HT Spor", "Ulusal"),
+            "androstreamlivenba": ("NBA TV", "NBA"),
+            "androstreamlivetv8": ("TV 8", "Ulusal"),
+            "androstreamlivetv85": ("TV 8.5", "Ulusal"),
+            "androstreamlivetb": ("tabii Spor", "tabii"),
+            "androstreamlivetb1": ("tabii Spor 1", "tabii"),
+            "androstreamlivetb2": ("tabii Spor 2", "tabii"),
+            "androstreamlivetb3": ("tabii Spor 3", "tabii"),
+            "androstreamliveexn": ("Exxen TV", "Exxen"),
+            "androstreamliveexn1": ("Exxen Sports 1", "Exxen"),
+            "androstreamliveexn2": ("Exxen Sports 2", "Exxen"),
+            "androstreamliveexn3": ("Exxen Sports 3", "Exxen"),
+            "androstreamliveexn4": ("Exxen Sports 4", "Exxen"),
         }
 
         m3u_content = []
         output_filename = "kanallar_mahsun.m3u8"
         created = 0
-        debug_captured = False
 
         page = context.new_page()
         page.on("popup", lambda popup: popup.close())
-
-        # Tarayıcı konsol loglarını topla
-        console_logs = []
-        page.on("console", lambda msg: console_logs.append(f"[{msg.type}] {msg.text}"))
 
         for i, (channel_id, (channel_name, category)) in enumerate(channels.items(), 1):
             try:
@@ -76,6 +138,7 @@ def main():
                     try:
                         req_url = request.url
                         req_url_lower = req_url.lower()
+
                         if ".m3u8" in req_url_lower:
                             if not any(ad in req_url_lower for ad in AD_PATTERNS):
                                 captured_urls.append(req_url)
@@ -88,17 +151,38 @@ def main():
                     page.goto(embed_url, timeout=12000, wait_until='domcontentloaded')
                     page.wait_for_timeout(1000)
 
-                    # Sayfada tıklama dene
-                    try:
-                        page.click('body, video, #player, .player', timeout=1500)
-                    except:
-                        pass
+                    # Reklamı başlatmak için videoya tıkla (veya un-mute yap)
+                    page.evaluate("""() => {
+                        document.querySelectorAll('video').forEach(v => {
+                            v.muted = true;
+                            v.play().catch(() => {});
+                        });
+                    }""")
 
+                    # Reklamın geçmesini ve canlı yayının başlamasını bekle (Max 14 sn)
                     start_time = time.time()
-                    while time.time() - start_time < 4:
+                    max_wait = 14
+
+                    while time.time() - start_time < max_wait:
+                        # Gerçek yayın m3u8'i yakalandığı anda beklemeden çık
                         if captured_urls:
                             break
-                        page.wait_for_timeout(300)
+
+                        # Varsa "Reklamı geç" butonuna periyodik olarak tıkla
+                        try:
+                            skip_btn = page.locator("text=/Reklamı geç/i, text=/Skip/i, button:has-text('Reklam')").first
+                            if skip_btn.is_visible():
+                                skip_btn.click(timeout=400)
+                        except:
+                            pass
+
+                        # Video oynatımı durduysa devam ettir
+                        try:
+                            page.evaluate("document.querySelectorAll('video').forEach(v => { if(v.paused) v.play(); });")
+                        except:
+                            pass
+
+                        page.wait_for_timeout(500)
 
                     chosen_m3u8 = None
                     if captured_urls:
@@ -111,22 +195,6 @@ def main():
                         created += 1
                     else:
                         print("-> ❌ Link bulunamadı")
-
-                        # İlk başarısız kanalda EKRAN GÖRÜNTÜSÜ VE HTML KAYDET
-                        if not debug_captured:
-                            page.screenshot(path="debug_screenshot.png", full_page=True)
-                            with open("debug_page.html", "w", encoding="utf-8") as f:
-                                f.write(page.content())
-                            
-                            print("   📸 Ekran görüntüsü kaydedildi → debug_screenshot.png")
-                            print("   📄 Sayfa HTML kaydedildi → debug_page.html")
-                            
-                            if console_logs:
-                                print("   ⚠️ Tarayıcı Konsol Kayıtları:")
-                                for log in console_logs[-8:]:
-                                    print(f"      • {log[:100]}")
-                            
-                            debug_captured = True
 
                 except Exception as e:
                     print(f"-> ❌ Hata: {str(e)[:50]}")
@@ -150,6 +218,10 @@ def main():
             with open(output_filename, "w", encoding="utf-8") as f:
                 f.write(header + "\n\n")
                 f.write("\n".join(m3u_content))
+            
+            print(f"\n🎉 Tamamlandı! {created} kanal kaydedildi → {output_filename}")
+        else:
+            print("\n❌ Hiçbir kanal için m3u8 linki yakalanamadı.")
 
 if __name__ == "__main__":
     main()
