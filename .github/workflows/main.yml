@@ -1,0 +1,49 @@
+name: Auto Update M3U8 Playlists
+
+on:
+  schedule:
+    # Her 6 saatte bir otomatik çalışır (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '*/5 * * * *'
+  # GitHub sayfasından manuel (tıklayarak) başlatabilme seçeneği
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-scrapers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Codebase Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Playwright & Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Run Taraftarium Scraper
+        run: |
+          if [ -f main.py ]; then
+            python main.py
+          fi
+
+      - name: Run Mahsun Sports Scraper
+        run: |
+          if [ -f mahsun_downloader.py ]; then
+            python mahsun_downloader.py
+          fi
+
+      - name: Commit and Push Updated M3U8 Files
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🤖 Auto Update: M3U8 Playlists Updated"
+          file_pattern: "*.m3u8"
