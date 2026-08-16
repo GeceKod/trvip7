@@ -119,7 +119,7 @@ def main():
         }
 
         channel_results = {}
-        output_filename = "kanallar_mahsun.m3u8"
+        output_filename = "kanallar7.m3u8"
         active_cdn_host = "andro.evrenesoglu57.click"  # Bilinen temel CDN
 
         for i, (channel_id, (channel_name, category)) in enumerate(channels.items(), 1):
