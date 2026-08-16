@@ -4,7 +4,7 @@ import time
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
-# Engellenecek reklam ve sosyal medya domainleri
+# Engellenecek reklam, analitik ve sosyal medya domainleri
 BLOCKED_DOMAINS = [
     "bsky.app",
     "bluesky",
@@ -17,6 +17,7 @@ BLOCKED_DOMAINS = [
     "doubleclick",
     "googlesyndication",
     "analytics",
+    "gtag",
 ]
 
 def check_active_domain(context):
@@ -45,7 +46,6 @@ def check_active_domain(context):
             print(f"❌ {str(e)[:40]}")
 
     page.close()
-    # Varsayılan fallback
     return "https://mahsun-amp.click"
 
 
@@ -134,7 +134,7 @@ def main():
         created = 0
 
         regex_fallback = re.compile(
-            r'["\'](https?://[^"\'\s]+?/[^"\'\s]+?(?:mono|index|playlist|live|stream)\.m3u8[^"\'\s]*)["\']',
+            r'["\'](https?://[^"\'\s]+?/[^"\'\s]+?\.m3u8[^"\'\s]*)["\']',
             re.IGNORECASE
         )
 
@@ -146,24 +146,24 @@ def main():
                 print(f"[{i:02d}/{len(channels)}] {channel_name} ({channel_id})...", end=' ')
                 sys.stdout.flush()
 
-                # Doğrudan embed sunucusuna yönlen (daha hızlı ve kararlı çözüm)
                 embed_url = f"https://8602741.xyz/event.html?id={channel_id}"
                 captured_urls = []
 
+                # Esnek m3u8 yakalayıcı (batutest.m3u8 gibi tüm dinamik isimleri destekler)
                 def handle_request(request):
                     try:
-                        req_url = request.url.lower()
-                        if ".m3u8" in req_url:
-                            if not any(blocked in req_url for blocked in BLOCKED_DOMAINS):
-                                if any(x in req_url for x in ["mono", "index", "playlist", "chunk", "live", "hls"]):
-                                    captured_urls.append(request.url)
+                        req_url = request.url
+                        req_url_lower = req_url.lower()
+
+                        if ".m3u8" in req_url_lower:
+                            if not any(blocked in req_url_lower for blocked in BLOCKED_DOMAINS):
+                                captured_urls.append(req_url)
                     except:
                         pass
 
                 page.on("request", handle_request)
 
                 try:
-                    # Referer olarak ana siteyi göstererek embed sayfasını aç
                     page.goto(embed_url, timeout=12000, wait_until='domcontentloaded', referer=domain)
                     page.wait_for_timeout(1000)
 
@@ -176,14 +176,13 @@ def main():
                         pass
 
                     start_time = time.time()
-                    while time.time() - start_time < 5:
+                    while time.time() - start_time < 6:
                         if captured_urls:
                             break
                         page.wait_for_timeout(400)
 
                     chosen_m3u8 = None
                     if captured_urls:
-                        # Varsa .m3u8 geçen geçerli linki seç
                         chosen_m3u8 = captured_urls[-1]
 
                     if chosen_m3u8:
