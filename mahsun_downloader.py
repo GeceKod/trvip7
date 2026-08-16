@@ -84,7 +84,7 @@ def main():
         domain = check_active_domain(context)
         print(f"\n📡 Kullanılan Domain: {domain}\n")
 
-        # HTML yapısına birebir uygun Mahsun Sports Kanal Listesi
+        # HTML yapısına göre tüm kanallar
         channels = {
             "androstreamlivebs1": ("BeIN Sports 1", "BeinSports"),
             "androstreamlivebs2": ("BeIN Sports 2", "BeinSports"),
@@ -133,80 +133,72 @@ def main():
         output_filename = "kanallar_mahsun.m3u8"
         created = 0
 
-        regex_fallback = re.compile(
-            r'["\'](https?://[^"\'\s]+?/[^"\'\s]+?\.m3u8[^"\'\s]*)["\']',
-            re.IGNORECASE
-        )
-
         page = context.new_page()
         page.on("popup", lambda popup: popup.close())
 
+        captured_urls = []
+
+        # Giden ve gelen tüm istekleri dinle
+        def handle_request(request):
+            try:
+                req_url = request.url
+                req_url_lower = req_url.lower()
+
+                if ".m3u8" in req_url_lower:
+                    if not any(blocked in req_url_lower for blocked in BLOCKED_DOMAINS):
+                        if req_url not in captured_urls:
+                            captured_urls.append(req_url)
+            except:
+                pass
+
+        page.on("request", handle_request)
+
+        # 1. Ana sayfayı bir kez aç (Iframe context'ini oluştur)
+        print("🌐 Ana sayfa yükleniyor...")
+        try:
+            page.goto(domain, timeout=25000, wait_until='domcontentloaded')
+            page.wait_for_timeout(2000)
+        except Exception as e:
+            print(f"⚠️ Ana sayfa yükleme uyarısı: {e}")
+
+        # 2. Kanalları ana sayfa üzerindeki iframe içinde hızlıca değiştirerek tara
         for i, (channel_id, (channel_name, category)) in enumerate(channels.items(), 1):
             try:
                 print(f"[{i:02d}/{len(channels)}] {channel_name} ({channel_id})...", end=' ')
                 sys.stdout.flush()
 
-                embed_url = f"https://8602741.xyz/event.html?id={channel_id}"
-                captured_urls = []
+                captured_urls.clear()
 
-                # Esnek m3u8 yakalayıcı (batutest.m3u8 gibi tüm dinamik isimleri destekler)
-                def handle_request(request):
-                    try:
-                        req_url = request.url
-                        req_url_lower = req_url.lower()
+                # Iframe'i doğrudan güncel kanal ile tetikle
+                page.evaluate(f"""() => {{
+                    const btn = document.querySelector('[option="{channel_id}"]');
+                    if (btn) {{
+                        btn.click();
+                    }}
+                    const iframes = document.querySelectorAll('amp-iframe iframe, iframe');
+                    if (iframes.length > 0) {{
+                        iframes[0].src = "https://8602741.xyz/event.html?id={channel_id}#amp=1";
+                    }}
+                }}""")
 
-                        if ".m3u8" in req_url_lower:
-                            if not any(blocked in req_url_lower for blocked in BLOCKED_DOMAINS):
-                                captured_urls.append(req_url)
-                    except:
-                        pass
-
-                page.on("request", handle_request)
-
-                try:
-                    page.goto(embed_url, timeout=12000, wait_until='domcontentloaded', referer=domain)
-                    page.wait_for_timeout(1000)
-
-                    # Video oynatıcıyı tıklayarak tetikle
-                    try:
-                        frame = page.wait_for_selector('iframe, video', timeout=2000)
-                        if frame:
-                            frame.click(timeout=1000)
-                    except:
-                        pass
-
-                    start_time = time.time()
-                    while time.time() - start_time < 6:
-                        if captured_urls:
-                            break
-                        page.wait_for_timeout(400)
-
-                    chosen_m3u8 = None
+                # M3U8 linkinin yakalanmasını bekle
+                start_time = time.time()
+                while time.time() - start_time < 5:
                     if captured_urls:
-                        chosen_m3u8 = captured_urls[-1]
+                        break
+                    page.wait_for_timeout(300)
 
-                    if chosen_m3u8:
-                        m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
-                        m3u_content.append(chosen_m3u8)
-                        print(f"-> ✅ OK ({chosen_m3u8})")
-                        created += 1
-                    else:
-                        content = page.content()
-                        match = regex_fallback.search(content)
-                        if match and not any(b in match.group(1).lower() for b in BLOCKED_DOMAINS):
-                            stream_url = match.group(1)
-                            m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
-                            m3u_content.append(stream_url)
-                            print(f"-> ✅ Regex OK ({stream_url})")
-                            created += 1
-                        else:
-                            print("-> ❌ Link bulunamadı")
+                chosen_m3u8 = None
+                if captured_urls:
+                    chosen_m3u8 = captured_urls[-1]
 
-                except Exception as e:
-                    print(f"-> ❌ Hata: {str(e)[:50]}")
-                finally:
-                    page.remove_listener("request", handle_request)
-                    page.wait_for_timeout(200)
+                if chosen_m3u8:
+                    m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
+                    m3u_content.append(chosen_m3u8)
+                    print(f"-> ✅ OK ({chosen_m3u8})")
+                    created += 1
+                else:
+                    print("-> ❌ Link bulunamadı")
 
             except Exception as e:
                 print(f"-> ❌ Genel hata: {e}")
