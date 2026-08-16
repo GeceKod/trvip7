@@ -2,9 +2,7 @@ name: Auto Update M3U8 Playlists
 
 on:
   schedule:
-    # Her 6 saatte bir otomatik çalışır
     - cron: '0 */6 * * *'
-  # GitHub Actions sekmesinden elle tetikleme imkanı
   workflow_dispatch:
 
 permissions:
@@ -46,3 +44,14 @@ jobs:
         with:
           commit_message: "🤖 Auto Update: M3U8 Playlists Updated"
           file_pattern: "*.m3u8"
+
+      # Ekran görüntüsü ve HTML dosyasını GitHub arayüzüne yükler
+      - name: Upload Debug Artifacts (Screenshot & HTML)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts
+          path: |
+            debug_screenshot.png
+            debug_page.html
+          if-no-files-found: ignore
