@@ -4,45 +4,17 @@ import time
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
-# Engellenecek reklam ve sosyal medya domainleri
-BLOCKED_DOMAINS = [
+# Engellenecek reklam ağları ve takipçiler
+AD_PATTERNS = [
     "bsky.app", "bluesky", "twitter.com", "x.com", "telegram.org",
-    "t.me", "youtube.com", "facebook.com", "doubleclick", "googlesyndication",
-    "analytics", "gtag"
+    "doubleclick", "googlesyndication", "analytics", "gtag",
+    "adcash", "popads", "propeller", "adnxs", "histats", "onclick",
+    "adrun", "adserver", "monetag", "traffic", "banner"
 ]
-
-def check_active_domain(context):
-    """Mahsun Sports aktif domainini doğrulama."""
-    test_urls = [
-        "https://mahsun-amp.click/",
-        "https://mahsunsports.xyz/",
-        "https://mahsunsports46.xyz/",
-    ]
-
-    print("\n🔍 Mahsun Sports domain kontrolü yapılıyor...\n")
-    page = context.new_page()
-    page.on("popup", lambda popup: popup.close())
-
-    for url in test_urls:
-        try:
-            print(f"   Deniyor → {url}", end=" ")
-            response = page.goto(url, timeout=8000, wait_until="domcontentloaded")
-            if response and response.ok:
-                print("✅ BULUNDU!")
-                page.close()
-                return url.rstrip("/")
-            else:
-                print(f"❌ HTTP {response.status if response else 'Yok'}")
-        except Exception as e:
-            print(f"❌ {str(e)[:40]}")
-
-    page.close()
-    return "https://mahsun-amp.click"
-
 
 def main():
     with sync_playwright() as p:
-        print("🚀 Mahsun Sports Iframe Tetikleyici & M3U8 İndirici Başlatılıyor...\n")
+        print("🚀 Mahsun Sports Reklam Kırıcı & M3U8 İndirici Başlatılıyor...\n")
         
         browser_args = [
             '--autoplay-policy=no-user-gesture-required',
@@ -62,15 +34,27 @@ def main():
             ignore_https_errors=True,
             viewport={'width': 1366, 'height': 768},
             locale='tr-TR',
-            timezone_id='Europe/Istanbul'
+            timezone_id='Europe/Istanbul',
+            extra_http_headers={
+                'Referer': 'https://mahsun-amp.click/',
+                'Origin': 'https://mahsun-amp.click'
+            }
         )
 
+        # Bot tespiti engelleme
         context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """)
 
-        domain = check_active_domain(context)
-        print(f"\n📡 Kullanılan Domain: {domain}\n")
+        # Reklam scriptlerini doğrudan ağ seviyesinde iptal et
+        def route_handler(route):
+            url = route.request.url.lower()
+            if any(ad in url for ad in AD_PATTERNS):
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", route_handler)
 
         channels = {
             "androstreamlivebs1": ("BeIN Sports 1", "BeinSports"),
@@ -123,73 +107,108 @@ def main():
         page = context.new_page()
         page.on("popup", lambda popup: popup.close())
 
-        captured_urls = []
-
-        # m3u8 İsteklerini Yakalayıcı
-        def handle_request(request):
-            try:
-                req_url = request.url
-                req_url_lower = req_url.lower()
-
-                if ".m3u8" in req_url_lower:
-                    if not any(blocked in req_url_lower for blocked in BLOCKED_DOMAINS):
-                        captured_urls.append(req_url)
-            except:
-                pass
-
-        page.on("request", handle_request)
-
-        # 1. Ana host sayfasına bağlan
-        print("🌐 Ana sunucu ortamı hazırlanıyor...")
-        try:
-            page.goto(domain, timeout=20000, wait_until='domcontentloaded')
-            page.wait_for_timeout(1000)
-        except Exception as e:
-            print(f"⚠️ Uyarı: {e}")
-
-        # 2. Kanalları gerçek iframe içinde sırayla çalıştır
         for i, (channel_id, (channel_name, category)) in enumerate(channels.items(), 1):
             try:
                 print(f"[{i:02d}/{len(channels)}] {channel_name} ({channel_id})...", end=' ')
                 sys.stdout.flush()
 
-                captured_urls.clear()
+                embed_url = f"https://8602741.xyz/event.html?id={channel_id}#amp=1"
+                captured_urls = []
 
-                # Sayfa içine iframe enjekte et (Anti-standalone korumasını aşar)
-                embed_src = f"https://8602741.xyz/event.html?id={channel_id}"
-                page.evaluate(f"""() => {{
-                    document.body.innerHTML = '<iframe id="target_player" src="{embed_src}" allow="autoplay; encrypted-media; fullscreen" style="width:800px;height:500px;border:none;"></iframe>';
-                }}""")
+                def handle_request(request):
+                    try:
+                        req_url = request.url
+                        req_url_lower = req_url.lower()
 
-                # Iframe'in yüklenmesini bekle ve oynatıcıyı tıkla
-                page.wait_for_timeout(800)
+                        if ".m3u8" in req_url_lower:
+                            if not any(ad in req_url_lower for ad in AD_PATTERNS):
+                                captured_urls.append(req_url)
+                    except:
+                        pass
+
+                page.on("request", handle_request)
+
                 try:
-                    frame = page.frame_locator("#target_player")
-                    frame.locator("body").click(timeout=1500)
-                except:
-                    pass
+                    page.goto(embed_url, timeout=12000, wait_until='domcontentloaded')
+                    page.wait_for_timeout(800)
 
-                # m3u8 linkinin düşmesini bekle
-                start_time = time.time()
-                while time.time() - start_time < 5:
+                    # 1. Adım: Oynatıcı üzerindeki şeffaf reklam katmanlarını kaldır
+                    page.evaluate("""() => {
+                        // Şeffaf overlay, reklam bloklayıcı ve popunder tetikleyicilerini temizle
+                        const adSelectors = [
+                            'div[id*="ad"]', 'div[class*="ad"]', 'div[style*="z-index"]',
+                            'a[target="_blank"]', 'div[onclick]', 'span[onclick]'
+                        ];
+                        adSelectors.forEach(sel => {
+                            document.querySelectorAll(sel).forEach(el => {
+                                if (!el.querySelector('video')) {
+                                    el.remove();
+                                }
+                            });
+                        });
+                    }""")
+
+                    # 2. Adım: Reklamı geçmek için ekranın ortasına 3 kez tıkla (Multi-click)
+                    for _ in range(3):
+                        if captured_urls:
+                            break
+                        page.mouse.click(683, 384)
+                        page.wait_for_timeout(600)
+
+                    # 3. Adım: DOM içindeki video etiketini doğrudan oynatmaya zorla
+                    if not captured_urls:
+                        page.evaluate("""() => {
+                            const videos = document.querySelectorAll('video');
+                            videos.forEach(v => {
+                                v.muted = true;
+                                v.play().catch(() => {});
+                            });
+                            // Clappr oynatıcı varsa başlat
+                            if (window.player && typeof window.player.play === 'function') {
+                                window.player.play();
+                            }
+                        }""")
+
+                    # M3U8 isteğinin düşmesini bekle
+                    start_time = time.time()
+                    while time.time() - start_time < 4:
+                        if captured_urls:
+                            break
+                        page.wait_for_timeout(300)
+
+                    chosen_m3u8 = None
                     if captured_urls:
-                        break
-                    page.wait_for_timeout(300)
+                        chosen_m3u8 = captured_urls[-1]
 
-                chosen_m3u8 = None
-                if captured_urls:
-                    chosen_m3u8 = captured_urls[-1]
+                    # 4. Adım: Eğer ağdan düşmediyse sayfa içi JS değişkenlerinden yakala
+                    if not chosen_m3u8:
+                        js_link = page.evaluate("""() => {
+                            if (window.player && window.player.options && window.player.options.source) {
+                                return window.player.options.source;
+                            }
+                            if (window.source) return window.source;
+                            if (window.file) return window.file;
+                            return null;
+                        }""")
+                        if js_link and ".m3u8" in js_link:
+                            chosen_m3u8 = js_link
 
-                if chosen_m3u8:
-                    m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
-                    m3u_content.append(chosen_m3u8)
-                    print(f"-> ✅ OK ({chosen_m3u8})")
-                    created += 1
-                else:
-                    print("-> ❌ Link bulunamadı")
+                    if chosen_m3u8:
+                        m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
+                        m3u_content.append(chosen_m3u8)
+                        print(f"-> ✅ OK ({chosen_m3u8})")
+                        created += 1
+                    else:
+                        print("-> ❌ Link bulunamadı")
+
+                except Exception as e:
+                    print(f"-> ❌ Hata: {str(e)[:50]}")
+                finally:
+                    page.remove_listener("request", handle_request)
+                    page.wait_for_timeout(200)
 
             except Exception as e:
-                print(f"-> ❌ Hata: {str(e)[:50]}")
+                print(f"-> ❌ Genel hata: {e}")
                 continue
 
         page.close()
@@ -198,9 +217,9 @@ def main():
         if created > 0:
             header = f"""#EXTM3U
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
-#EXTVLCOPT:http-referrer={domain}/
+#EXTVLCOPT:http-referrer=https://mahsun-amp.click/
 #EXT-X-USER-AGENT:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
-#EXT-X-REFERER:{domain}/"""
+#EXT-X-REFERER:https://mahsun-amp.click/"""
 
             with open(output_filename, "w", encoding="utf-8") as f:
                 f.write(header + "\n\n")
