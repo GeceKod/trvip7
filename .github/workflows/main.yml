@@ -2,7 +2,8 @@ name: Auto Update M3U8 Playlists
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # Her 6 saatte bir otomatik çalışır
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -27,49 +28,35 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: Run Mahsun Sports Scraper
+      # 1. Scraper'ı çalıştır ve kanallar7.m3u8 üret
+      - name: Run Scraper
         run: |
           if [ -f mahsun_downloader.py ]; then
             python mahsun_downloader.py
-          fi
-
-      - name: Run Taraftarium Scraper
-        run: |
-          if [ -f main.py ]; then
+          elif [ -f main.py ]; then
             python main.py
           fi
 
-      # 1. Dosyayı doğrudan GeceKod/listeler reposuna yükle
-      - name: Push to GeceKod/listeler Repository
-        if: env.PAT_TOKEN != ''
+      # 2. Dosyayı doğrudan GeceKod/listeler reposuna yükle
+      - name: Push to GeceKod/listeler
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # Hedef repoyu klonla
-          git clone https://${PAT_TOKEN}@github.com/GeceKod/listeler.git target_repo
-          
-          # kanallar7.m3u8 dosyasını hedef repoya kopyala
+
+          # listeler reposunu klonla
+          git clone https://x-access-token:${TOKEN}@github.com/GeceKod/listeler.git listeler_repo
+
+          # Üretilen dosyayı listeler reposuna kopyala
           if [ -f kanallar7.m3u8 ]; then
-            cp kanallar7.m3u8 target_repo/kanallar7.m3u8
+            cp kanallar7.m3u8 listeler_repo/kanallar7.m3u8
           elif [ -f kanallar_mahsun.m3u8 ]; then
-            cp kanallar_mahsun.m3u8 target_repo/kanallar7.m3u8
+            cp kanallar_mahsun.m3u8 listeler_repo/kanallar7.m3u8
           fi
-          
-          # Hedef repoya commit ve push yap
-          cd target_repo
+
+          # listeler reposuna commit ve push yap
+          cd listeler_repo
           git add kanallar7.m3u8
           git commit -m "🤖 Auto Update: kanallar7.m3u8 updated" || echo "Değişiklik yok"
           git push origin main
-
-      # 2. Yedek olarak mevcut repoya da (trvip7) çakışmasız kaydet
-      - name: Save to Current Repo (trvip7)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main || true
-          git add *.m3u8 || true
-          git commit -m "🤖 Auto Update: M3U8 files updated" || echo "Değişiklik yok"
-          git push origin main || true
