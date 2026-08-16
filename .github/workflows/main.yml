@@ -2,7 +2,6 @@ name: Auto Update M3U8 Playlists
 
 on:
   schedule:
-    # Her 6 saatte bir otomatik çalışır
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
@@ -14,9 +13,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Codebase Checkout (trvip7)
+      # 1. Kaynak kodları çek (yetki çakışmasını engellemek için persist-credentials: false)
+      - name: Checkout Source (trvip7)
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
+      # 2. Python ve Playwright kurulumu
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -28,7 +31,7 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      # 1. Scraper'ı çalıştır ve kanallar7.m3u8 üret
+      # 3. Scraper'ı çalıştır ve kanallar7.m3u8 dosyasını üret
       - name: Run Scraper
         run: |
           if [ -f mahsun_downloader.py ]; then
@@ -37,26 +40,27 @@ jobs:
             python main.py
           fi
 
-      # 2. Dosyayı doğrudan GeceKod/listeler reposuna yükle
-      - name: Push to GeceKod/listeler
-        env:
-          TOKEN: ${{ secrets.PAT_TOKEN }}
+      # 4. GeceKod/listeler reposunu PAT_TOKEN ile resmi olarak bağla
+      - name: Checkout Target Repo (GeceKod/listeler)
+        uses: actions/checkout@v4
+        with:
+          repository: 'GeceKod/listeler'
+          token: ${{ secrets.PAT_TOKEN }}
+          path: 'listeler_repo'
+          persist-credentials: true
+
+      # 5. Dosyayı listeler_repo içine kopyala ve pushla
+      - name: Commit and Push to GeceKod/listeler
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # listeler reposunu klonla
-          git clone https://x-access-token:${TOKEN}@github.com/GeceKod/listeler.git listeler_repo
-
-          # Üretilen dosyayı listeler reposuna kopyala
           if [ -f kanallar7.m3u8 ]; then
             cp kanallar7.m3u8 listeler_repo/kanallar7.m3u8
           elif [ -f kanallar_mahsun.m3u8 ]; then
             cp kanallar_mahsun.m3u8 listeler_repo/kanallar7.m3u8
           fi
 
-          # listeler reposuna commit ve push yap
           cd listeler_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add kanallar7.m3u8
           git commit -m "🤖 Auto Update: kanallar7.m3u8 updated" || echo "Değişiklik yok"
           git push origin main
