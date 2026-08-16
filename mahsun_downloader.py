@@ -118,10 +118,9 @@ def main():
             "androstreamliveexn4": ("Exxen Sports 4", "Exxen"),
         }
 
-        m3u_content = []
+        channel_results = {}
         output_filename = "kanallar_mahsun.m3u8"
-        created = 0
-        active_cdn_host = None  # Canlı yakalanan CDN sunucusu (örn: andro.evrenesoglu57.click)
+        active_cdn_host = "andro.evrenesoglu57.click"  # Bilinen temel CDN
 
         for i, (channel_id, (channel_name, category)) in enumerate(channels.items(), 1):
             page = None
@@ -129,7 +128,6 @@ def main():
                 print(f"[{i:02d}/{len(channels)}] {channel_name} ({channel_id})...", end=' ')
                 sys.stdout.flush()
 
-                # Her kanal için izole, temiz sayfa aç
                 page = context.new_page()
                 page.on("popup", lambda p: p.close())
 
@@ -143,7 +141,6 @@ def main():
 
                         if ".m3u8" in req_url_lower:
                             if not any(ad in req_url_lower for ad in AD_PATTERNS):
-                                # Başka bir kanalın isteği sızdıysa kabul etme
                                 if channel_id != "androstreamlivebs1" and channel_id not in req_url_lower:
                                     return
                                 captured_urls.append(req_url)
@@ -153,10 +150,10 @@ def main():
                 page.on("request", handle_request)
 
                 try:
-                    page.goto(embed_url, timeout=12000, wait_until='domcontentloaded')
+                    page.goto(embed_url, timeout=14000, wait_until='domcontentloaded')
                     page.wait_for_timeout(800)
 
-                    # Video oynatmayı tetikle
+                    # Video oynatmayı başlat
                     page.evaluate("""() => {
                         document.querySelectorAll('video').forEach(v => {
                             v.muted = true;
@@ -164,15 +161,14 @@ def main():
                         });
                     }""")
 
-                    # Reklamı geçme ve m3u8 yakalama döngüsü
+                    # 1. kanal için ekstra bekleme süresi (14 sn)
                     start_time = time.time()
-                    max_wait = 10 if i <= 3 else 7
+                    max_wait = 14 if i == 1 else 7
 
                     while time.time() - start_time < max_wait:
                         if captured_urls:
                             break
 
-                        # Reklamı geç butonu varsa tıkla
                         try:
                             skip_btn = page.locator("text=/Reklamı geç/i, text=/Skip/i, button:has-text('Reklam')").first
                             if skip_btn.is_visible():
@@ -185,12 +181,11 @@ def main():
                     chosen_m3u8 = None
                     if captured_urls:
                         chosen_m3u8 = captured_urls[-1]
-                        # CDN Domainini hafızaya al
                         parsed = urlparse(chosen_m3u8)
                         if parsed.netloc:
                             active_cdn_host = parsed.netloc
 
-                    # Eğer reklam nedeniyle yakalanamadıysa, tespit edilen canlı CDN ile tamamla
+                    # Otomatik tamamlama
                     if not chosen_m3u8 and active_cdn_host:
                         if channel_id == "androstreamlivebs1":
                             chosen_m3u8 = f"https://{active_cdn_host}/checklist/batutest.m3u8"
@@ -203,9 +198,7 @@ def main():
                         print("-> ❌ Link bulunamadı")
 
                     if chosen_m3u8:
-                        m3u_content.append(f'#EXTINF:-1 tvg-name="{channel_name}" group-title="{category}",{channel_name}')
-                        m3u_content.append(chosen_m3u8)
-                        created += 1
+                        channel_results[channel_id] = (channel_name, category, chosen_m3u8)
 
                 except Exception as e:
                     print(f"-> ❌ Hata: {str(e)[:50]}")
@@ -221,7 +214,21 @@ def main():
 
         browser.close()
 
-        if created > 0:
+        # BeIN Sports 1 kontrolü (Garantör)
+        if "androstreamlivebs1" not in channel_results:
+            bs1_url = f"https://{active_cdn_host}/checklist/batutest.m3u8"
+            channel_results["androstreamlivebs1"] = ("BeIN Sports 1", "BeinSports", bs1_url)
+            print(f"\n💎 BeIN Sports 1 Garantör ile eklendi → {bs1_url}")
+
+        # Playlist oluşturma
+        m3u_content = []
+        for ch_id, (ch_name, ch_cat) in channels.items():
+            if ch_id in channel_results:
+                _, _, stream_url = channel_results[ch_id]
+                m3u_content.append(f'#EXTINF:-1 tvg-name="{ch_name}" group-title="{ch_cat}",{ch_name}')
+                m3u_content.append(stream_url)
+
+        if m3u_content:
             header = f"""#EXTM3U
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
 #EXTVLCOPT:http-referrer=https://mahsun-amp.click/
@@ -232,7 +239,7 @@ def main():
                 f.write(header + "\n\n")
                 f.write("\n".join(m3u_content))
             
-            print(f"\n🎉 Tamamlandı! {created}/{len(channels)} kanal kaydedildi → {output_filename}")
+            print(f"\n🎉 Tamamlandı! {len(channel_results)}/{len(channels)} kanal kaydedildi → {output_filename}")
         else:
             print("\n❌ Hiçbir kanal için m3u8 linki yakalanamadı.")
 
